@@ -34,6 +34,7 @@ module intent::intent {
     use std::string::String;
 
     use sui::transfer::Receiving;
+    use sui::dynamic_field as df;
 
     use intent::intent_payload::IntentPayload;
 
@@ -53,7 +54,9 @@ module intent::intent {
 
     // === Structs ===
 
-    public struct Intent<phantom Executor: drop, Config: store> has key {
+    public struct ConfigKey has copy, store, drop {}
+
+    public struct Intent<phantom Executor: drop> has key {
         id: UID,
         storage: UID,
         owner: address,
@@ -63,8 +66,7 @@ module intent::intent {
         requested: vector<address>,
         deposited: vector<address>,
         returned: vector<address>,
-        required: vector<address>,
-        config: Config        
+        required: vector<address>,      
     }
 
     public struct Lock {
@@ -75,7 +77,7 @@ module intent::intent {
 
     // === Public-Mutative Functions ===
 
-    public fun new<Executor: drop, Config: store>(payload: IntentPayload<Executor, Config>, ctx: &mut TxContext): Intent<Executor, Config> {
+    public fun new<Executor: drop, Config: store>(payload: IntentPayload<Executor, Config>, ctx: &mut TxContext): Intent<Executor> {
         let (name, owner, deadline, requested, required) = (
             payload.name(),
             payload.owner(),
@@ -84,9 +86,13 @@ module intent::intent {
             payload.required()
         );
 
-        Intent<Executor, Config> {
+        let mut storage = object::new(ctx);
+
+        df::add(&mut storage, ConfigKey {}, payload.destroy());
+
+        Intent {
             id: object::new(ctx),
-            storage: object::new(ctx),
+            storage,
             initiated: false,
             owner,
             name,
@@ -94,12 +100,11 @@ module intent::intent {
             requested,
             deposited: vector[],
             returned: vector[],
-            required,
-            config: payload.destroy()
+            required
         }
     }
 
-    public fun share<Executor: drop, Config: store>(self: Intent<Executor, Config>) {
+    public fun share<Executor: drop>(self: Intent<Executor>) {
         let mut i = 0;
         let len = self.requested.length();
 
@@ -113,7 +118,7 @@ module intent::intent {
         transfer::share_object(self);
     }
 
-    public fun deposit<Executor: drop, Config: store, Object: store + key>(self: &mut Intent<Executor, Config>, object: Object) {
+    public fun deposit<Executor: drop, Object: store + key>(self: &mut Intent<Executor>, object: Object) {
         assert!(!self.initiated, EIsAlreadyInitiated);
 
         let object_id = object::id(&object).id_to_address();
@@ -124,25 +129,25 @@ module intent::intent {
         transfer::public_transfer(object, self.storage.uid_to_address());
     }
 
-    public fun start<Executor: drop, Config: store>(self: &mut Intent<Executor, Config>, _: Executor, ctx: &mut TxContext): Lock {
+    public fun start<Executor: drop>(self: &mut Intent<Executor>, _: Executor, ctx: &mut TxContext): Lock {
         assert!(self.deadline > ctx.epoch(), EHasExpired);
         self.initiated = true;
         Lock { intent: self.id.uid_to_address() }
     }
 
-    public fun take<Executor: drop, Config: store, Object: store + key>(self: &mut Intent<Executor, Config>, receiving: Receiving<Object>): Object {
+    public fun take<Executor: drop, Object: store + key>(self: &mut Intent<Executor>, receiving: Receiving<Object>): Object {
         assert!(self.initiated, ECallStartFirst);
         transfer::public_receive(&mut self.id, receiving)
     }
 
-    public fun put<Executor: drop, Config: store, Object: store + key>(self: &mut Intent<Executor, Config>, object: Object) {
+    public fun put<Executor: drop, Object: store + key>(self: &mut Intent<Executor>, object: Object) {
         assert!(self.initiated, ECallStartFirst);
         self.returned.push_back(object::id(&object).id_to_address());
         transfer::public_transfer(object, self.owner);
     }    
 
-    public fun end<Executor: drop, Config: store>(self: Intent<Executor, Config>, lock: Lock): Config {
-        let Intent { id, storage, owner: _, initiated, name: _, deadline: _, requested: _, deposited: _, returned, required, config } = self;
+    public fun end<Executor: drop, Config: store>(self: Intent<Executor>, lock: Lock) {
+        let Intent { id, storage, owner: _, initiated, name: _, deadline: _, requested: _, deposited: _, returned, required } = self;
 
         assert!(initiated, ECallStartFirst);
 
@@ -163,11 +168,9 @@ module intent::intent {
 
         id.delete();
         storage.delete();
-
-        config 
     }
 
-    public fun give_back<Executor: drop, Config: store, Object: store + key>(self: &mut Intent<Executor, Config>, receiving: Receiving<Object>, ctx: &mut TxContext) {
+    public fun give_back<Executor: drop, Object: store + key>(self: &mut Intent<Executor>, receiving: Receiving<Object>, ctx: &mut TxContext) {
         assert!(ctx.epoch() > self.deadline, EHasNotExpired);
         assert!(!self.initiated, EHasBeenInitiated);
 
@@ -178,11 +181,11 @@ module intent::intent {
         transfer::public_transfer(object, self.owner);
     }
 
-    public fun destroy<Executor: drop, Config: store>(self: Intent<Executor, Config>, ctx: &mut TxContext): Config {
+    public fun destroy<Executor: drop>(self: Intent<Executor>, ctx: &mut TxContext) {
         assert!(ctx.epoch() > self.deadline, EHasNotExpired);
         assert!(!self.initiated, EHasBeenInitiated);
         
-        let Intent { id, storage, owner: _, initiated: _, name: _, deadline: _, requested: _, deposited: _, returned, required, config } = self;
+        let Intent { id, storage, owner: _, initiated: _, name: _, deadline: _, requested: _, deposited: _, returned, required } = self;
 
         let mut i = 0;
         let len = required.length();
@@ -197,42 +200,40 @@ module intent::intent {
 
         id.delete();
         storage.delete();
-
-        config 
     }
 
     // === Public-View Functions ===
 
-    public fun name<Executor: drop, Config: store>(self: &Intent<Executor, Config>): String {
+    public fun name<Executor: drop>(self: &Intent<Executor>): String {
         self.name
     }
 
-    public fun deadline<Executor: drop, Config: store>(self: &Intent<Executor, Config>): u64 {
+    public fun deadline<Executor: drop>(self: &Intent<Executor>): u64 {
         self.deadline
     }
 
-    public fun initiated<Executor: drop, Config: store>(self: &Intent<Executor, Config>): bool {
+    public fun initiated<Executor: drop>(self: &Intent<Executor>): bool {
         self.initiated
     }
 
-    public fun requested<Executor: drop, Config: store>(self: &Intent<Executor, Config>): vector<address> {
+    public fun requested<Executor: drop>(self: &Intent<Executor>): vector<address> {
         self.requested
     }
 
-    public fun deposited<Executor: drop, Config: store>(self: &Intent<Executor, Config>): vector<address> {
+    public fun deposited<Executor: drop>(self: &Intent<Executor>): vector<address> {
         self.deposited
     }
 
-    public fun returned<Executor: drop, Config: store>(self: &Intent<Executor, Config>): vector<address> {
+    public fun returned<Executor: drop>(self: &Intent<Executor>): vector<address> {
         self.returned
     }
 
-    public fun required<Executor: drop, Config: store>(self: &Intent<Executor, Config>): vector<address> {
+    public fun required<Executor: drop>(self: &Intent<Executor>): vector<address> {
         self.returned
     }
 
-    public fun config_mut<Executor: drop, Config: store>(self: &mut Intent<Executor, Config>, _: Executor): &mut Config {
-        &mut self.config
+    public fun config_mut<Executor: drop, Config: store>(self: &mut Intent<Executor>, _: Executor): &mut Config {
+        df::borrow_mut(&mut self.storage, ConfigKey {})
     }
 
     // === Admin Functions ===
