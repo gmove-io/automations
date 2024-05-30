@@ -1,3 +1,33 @@
+/*
+* @title Intent
+* @description It is an Transfer To Object based intent to manage assets and capabilities
+* @dev
+
+Flow
+
+1 - Create IntentPayload
+2 - Store in the Proposal
+
+--- To execute a proposal ---
+
+3 - Create the Intent with the IntentPayload
+4 - Deposit all required objects
+5 - Share Intent
+
+--- Happy Path someone executes ---
+
+6 - Call start
+7 - Take objects
+8 - Return objects (if required)
+9 - Call end
+
+--- Unhappy Path, the deadline has passed without it being executed ---
+
+6 - Call give_back to return objects from the intent to owner
+7 - destroy the intent
+
+*
+*/
 module intent::intent {
     // === Imports ===
 
