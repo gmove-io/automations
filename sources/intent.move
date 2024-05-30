@@ -158,7 +158,7 @@ module intent::intent {
         transfer::public_transfer(object, self.owner);
     }    
 
-    public fun end<Executor: drop, Config: store>(self: Intent<Executor>, lock: Lock) {
+    public fun end<Executor: drop>(self: Intent<Executor>, lock: Lock) {
         let Intent { id, storage, owner: _, initiated, name: _, deadline: _, requested: _, deposited: _, returned, required } = self;
 
         assert!(initiated, ECallStartFirst);
