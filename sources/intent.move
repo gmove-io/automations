@@ -49,6 +49,7 @@ module intent::intent {
     const EMissingRequestedObjects: u64 = 6;
     const EHasNotExpired: u64 = 7;
     const EHasBeenInitiated: u64 = 8;
+    const ECannotBeShared: u64 = 9;
 
     // === Constants ===
 
@@ -63,6 +64,7 @@ module intent::intent {
         name: String,
         deadline: u64,        
         initiated: bool,
+        shared: bool,
         requested: vector<address>,
         deposited: vector<address>,
         returned: vector<address>,
@@ -98,6 +100,7 @@ module intent::intent {
             id: object::new(ctx),
             storage,
             initiated: false,
+            shared: false,
             owner,
             name,
             deadline,
@@ -112,7 +115,7 @@ module intent::intent {
         (intent, share_lock)
     }
 
-    public fun share<Executor: drop>(self: Intent<Executor>, share_lock: ShareLock) {
+    public fun share<Executor: drop>(mut self: Intent<Executor>, share_lock: ShareLock) {
         let ShareLock { intent } = share_lock;
 
         assert!(intent == self.id.uid_to_address(), EInvalidLock);
@@ -127,11 +130,14 @@ module intent::intent {
             i = i + 1;
         };
 
+        self.shared = true;
+
         transfer::share_object(self);
     }
 
     public fun deposit<Executor: drop, Object: store + key>(self: &mut Intent<Executor>, object: Object) {
         assert!(!self.initiated, EIsAlreadyInitiated);
+        assert!(!self.shared, ECannotBeShared);
 
         let object_id = object::id(&object).id_to_address();
 
@@ -159,7 +165,7 @@ module intent::intent {
     }    
 
     public fun end<Executor: drop>(self: Intent<Executor>, lock: Lock) {
-        let Intent { id, storage, owner: _, initiated, name: _, deadline: _, requested: _, deposited: _, returned, required } = self;
+        let Intent { id, storage, owner: _, initiated, name: _, deadline: _, requested: _, deposited: _, returned, required, shared: _ } = self;
 
         assert!(initiated, ECallStartFirst);
 
@@ -197,7 +203,7 @@ module intent::intent {
         assert!(ctx.epoch() > self.deadline, EHasNotExpired);
         assert!(!self.initiated, EHasBeenInitiated);
         
-        let Intent { id, storage, owner: _, initiated: _, name: _, deadline: _, requested: _, deposited: _, returned, required } = self;
+        let Intent { id, storage, owner: _, initiated: _, name: _, deadline: _, requested: _, deposited: _, returned, required, shared: _ } = self;
 
         let mut i = 0;
         let len = required.length();
