@@ -69,6 +69,10 @@ module intent::intent {
         required: vector<address>,      
     }
 
+    public struct ShareLock {
+        intent: address
+    }
+
     public struct Lock {
         intent: address
     }
@@ -77,7 +81,7 @@ module intent::intent {
 
     // === Public-Mutative Functions ===
 
-    public fun new<Executor: drop, Config: store>(payload: IntentPayload<Executor, Config>, ctx: &mut TxContext): Intent<Executor> {
+    public fun new<Executor: drop, Config: store>(payload: IntentPayload<Executor, Config>, ctx: &mut TxContext): (Intent<Executor>, ShareLock) {
         let (name, owner, deadline, requested, required) = (
             payload.name(),
             payload.owner(),
@@ -90,7 +94,7 @@ module intent::intent {
 
         df::add(&mut storage, ConfigKey {}, payload.destroy());
 
-        Intent {
+        let intent = Intent {
             id: object::new(ctx),
             storage,
             initiated: false,
@@ -101,10 +105,18 @@ module intent::intent {
             deposited: vector[],
             returned: vector[],
             required
-        }
+        };
+
+        let share_lock = ShareLock { intent: intent.id.uid_to_address() };
+
+        (intent, share_lock)
     }
 
-    public fun share<Executor: drop>(self: Intent<Executor>) {
+    public fun share<Executor: drop>(self: Intent<Executor>, share_lock: ShareLock) {
+        let ShareLock { intent } = share_lock;
+
+        assert!(intent == self.id.uid_to_address(), EInvalidLock);
+
         let mut i = 0;
         let len = self.requested.length();
 
