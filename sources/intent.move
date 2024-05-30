@@ -1,6 +1,6 @@
 /*
 * @title Intent
-* @description It is an Transfer To Object based intent to manage assets and capabilities
+* @description It is a Transfer To Object based intent to manage assets and capabilities. It is designed to power DAOs and Multisigs.
 * @dev
 
 Flow
