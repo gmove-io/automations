@@ -120,15 +120,7 @@ module intent::intent {
 
         assert!(intent == self.id.uid_to_address(), EInvalidLock);
 
-        let mut i = 0;
-        let len = self.requested.length();
-
-        assert!(len == self.deposited.length(), EMissingRequestedObjects);
-
-        while (len > i) {
-            assert!(self.deposited.contains(&self.requested[i]), EMissingRequestedObjects);
-            i = i + 1;
-        };
+        assert_vectors_equality(self.requested, self.deposited, EMissingRequestedObjects);
 
         self.shared = true;
 
@@ -172,17 +164,8 @@ module intent::intent {
         let Lock { intent } = lock;
 
         assert!(id.uid_to_address() == intent, EInvalidLock);
-
-        let mut i = 0;
-        let len = required.length();
-
-        assert!(len == returned.length(), EMissingRequiredObjects);
-
-        while (len > i) {
-            assert!(required.contains(&returned[i]), EMissingRequiredObjects);
-            i = i + 1;
-        };
-
+        
+        assert_vectors_equality(required, returned, EMissingRequiredObjects);
 
         id.delete();
         storage.delete();
@@ -205,16 +188,7 @@ module intent::intent {
         
         let Intent { id, storage, owner: _, initiated: _, name: _, deadline: _, requested: _, deposited: _, returned, required, shared: _ } = self;
 
-        let mut i = 0;
-        let len = required.length();
-
-        assert!(len == returned.length(), EMissingRequiredObjects);
-
-        while (len > i) {
-            assert!(required.contains(&returned[i]), EMissingRequiredObjects);
-            i = i + 1;
-        };
-
+        assert_vectors_equality(required, returned, EMissingRequiredObjects);
 
         id.delete();
         storage.delete();
@@ -259,6 +233,18 @@ module intent::intent {
     // === Public-Package Functions ===
 
     // === Private Functions ===
+
+    fun assert_vectors_equality(x: vector<address>, y: vector<address>, error: u64) {
+        let mut i = 0;
+        let len = x.length();
+
+        assert!(len == y.length(), error);
+
+        while (len > i) {
+            assert!(x.contains(&y[i]), error);
+            i = i + 1;
+        };        
+    }
 
     // === Test Functions ===
 }
