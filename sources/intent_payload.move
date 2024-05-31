@@ -16,7 +16,7 @@ module intent::intent_payload {
         owner: address,
         deadline: u64,
         requested: vector<address>,
-        required: vector<address>,
+        to_return: vector<address>,
         config: Config
     }
 
@@ -29,7 +29,7 @@ module intent::intent_payload {
         owner: address,
         deadline: u64,
         requested: vector<address>,
-        required: vector<address>,
+        to_return: vector<address>,
         config: Config,
         ctx: &mut TxContext        
     ): IntentPayload<Executor, Config> {
@@ -39,7 +39,7 @@ module intent::intent_payload {
             owner,
             deadline,
             requested,
-            required,
+            to_return,
             config
         }
     }
@@ -50,37 +50,37 @@ module intent::intent_payload {
             owner: _,
             deadline: _,
             requested: _,
-            required: _, 
+            to_return: _, 
             config
-         } = self;
+        } = self;
 
-         config
+        config
     }
 
     // === Public-View Functions ===
 
     public fun name<Executor: drop, Config: store>(self: &IntentPayload<Executor, Config>): String {
-     self.name
+        self.name
     }
 
     public fun owner<Executor: drop, Config: store>(self: &IntentPayload<Executor, Config>): address {
-     self.owner
+        self.owner
     }
 
     public fun deadline<Executor: drop, Config: store>(self: &IntentPayload<Executor, Config>): u64 {
-     self.deadline
+        self.deadline
     }
 
     public fun requested<Executor: drop, Config: store>(self: &IntentPayload<Executor, Config>): vector<address> {
-     self.requested
+        self.requested
     }
 
-    public fun required<Executor: drop, Config: store>(self: &IntentPayload<Executor, Config>): vector<address> {
-     self.required
+    public fun to_return<Executor: drop, Config: store>(self: &IntentPayload<Executor, Config>): vector<address> {
+        self.to_return
     }
 
     public fun config<Executor: drop, Config: store>(self: &IntentPayload<Executor, Config>): &Config {
-     &self.config
+        &self.config
     }
 
     // === Admin Functions ===
