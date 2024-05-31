@@ -153,20 +153,19 @@ module intent::intent {
         id.delete();
     }
 
-    public fun give_back<Executor: drop, Object: store + key>(self: &mut Executing<Executor>, object_id: address, ctx: &mut TxContext) {
-        assert!(ctx.epoch() > self.intent.deadline, EHasNotExpired);
-        assert!(!self.intent.initiated, EHasBeenInitiated);
+    public fun give_back<Executor: drop, Object: store + key>(self: &mut Intent<Executor>, object_id: address, ctx: &mut TxContext) {
+        assert!(ctx.epoch() > self.deadline, EHasNotExpired);
+        assert!(!self.initiated, EHasBeenInitiated);
 
-        let object = dof::remove<address, Object>(self.intent.storage(), object_id);
+        let object = dof::remove<address, Object>(self.storage(), object_id);
 
-        self.intent.returned.push_back(object_id);
+        self.returned.push_back(object_id);
 
-        transfer::public_transfer(object, self.intent.owner);
+        transfer::public_transfer(object, self.owner);
     }
 
-    public fun destroy<Executor: drop>(self: Executing<Executor>, ctx: &mut TxContext) {
-        let Executing { intent } = self;
-        let Intent { id, owner: _, initiated, name: _, deadline, requested: _, deposited: _, returned, required } = intent;
+    public fun destroy<Executor: drop>(self: Intent<Executor>, ctx: &mut TxContext) {
+        let Intent { id, owner: _, initiated, name: _, deadline, requested: _, deposited: _, returned, required } = self;
         
         assert!(ctx.epoch() > deadline, EHasNotExpired);
         assert!(!initiated, EHasBeenInitiated);
