@@ -37,9 +37,9 @@ module automations::automation {
 
     use std::string::String;
 
+    use sui::clock::Clock;
     use sui::dynamic_field as df;
     use sui::dynamic_object_field as dof;
-    use sui::clock::Clock;
 
     use automations::intent::Intent;
 
@@ -80,15 +80,18 @@ module automations::automation {
 
     // hot potato wrapper enforcing correct initialization 
     public struct Initializing<phantom Executor: drop> {
-        intent: Automation<Executor>
+        automation: Automation<Executor>
     }
 
     // hot potato wrapper enforcing correct execution
     public struct Executing<phantom Executor: drop> {
-        intent: Automation<Executor>
+        automation: Automation<Executor>
     }
 
     // === Method Aliases ===
+
+    public use fun initializing_inner as Initializing.inner;
+    public use fun executing_inner as Executing.inner;
 
     // === Public-Mutative Functions ===
 
@@ -102,66 +105,66 @@ module automations::automation {
             payload.required()
         );
 
-        let mut intent = Automation {
+        let mut automation = Automation {
             id: object::new(ctx),
             owner,
             name,
             execution,
             expiration,
             requested,
-            deposited: requested,
+            deposited: vector[],
             required
         };
 
-        df::add(intent.storage(), ConfigKey {}, payload.destroy());
+        df::add(automation.storage(), ConfigKey {}, payload.destroy());
 
-        Initializing { intent }
+        Initializing { automation }
     }
 
     public fun deposit<Executor: drop, Object: store + key>(self: &mut Initializing<Executor>, object: Object) {
         let object_id = object::id(&object).id_to_address();
-        let (contains, idx) = self.intent.requested.index_of(&object_id);
-        assert!(contains && !self.intent.deposited.contains(&object_id), ENotARequiredObject);
-        let addr = self.intent.requested.borrow(idx);
+        let (contains, idx) = self.automation.requested.index_of(&object_id);
+        assert!(contains && !self.automation.deposited.contains(&object_id), ENotARequiredObject);
+        let addr = self.automation.requested.borrow(idx);
         // adds only requested items that are not in deposited yet
-        self.intent.deposited.push_back(*addr);
+        self.automation.deposited.push_back(*addr);
 
-        dof::add(self.intent.storage(), object_id, object);
+        dof::add(self.automation.storage(), object_id, object);
     }
 
     #[allow(lint(share_owned))]
     public fun share<Executor: drop>(self: Initializing<Executor>) {
-        let Initializing { intent } = self;
+        let Initializing { automation } = self;
         // this is sufficient since there cannot have duplicates
-        assert!(intent.requested.length() == intent.deposited.length(), EMissingRequestedObjects);
+        assert!(automation.requested.length() == automation.deposited.length(), EMissingRequestedObjects);
 
-        transfer::share_object(intent);
+        transfer::share_object(automation);
     }
 
-    public fun start<Executor: drop>(intent: Automation<Executor>, _: Executor, clock: &Clock, ctx: &mut TxContext): Executing<Executor> {
-        assert!(intent.expiration > ctx.epoch(), EHasExpired);
-        assert!(intent.execution <= clock.timestamp_ms(), ENotExecutable);
-        Executing { intent }
+    public fun start<Executor: drop>(automation: Automation<Executor>, _: Executor, clock: &Clock, ctx: &mut TxContext): Executing<Executor> {
+        assert!(automation.expiration > ctx.epoch(), EHasExpired);
+        assert!(automation.execution <= clock.timestamp_ms(), ENotExecutable);
+        Executing { automation }
     }
 
     public fun take<Executor: drop, Object: store + key>(self: &mut Executing<Executor>, object_id: address): Object {
-        let (contains, idx) = self.intent.deposited.index_of(&object_id);
+        let (contains, idx) = self.automation.deposited.index_of(&object_id);
         assert!(contains, ENotARequestedObject);
 
-        self.intent.deposited.swap_remove(idx);
-        dof::remove(self.intent.storage(), object_id)        
+        self.automation.deposited.swap_remove(idx);
+        dof::remove(self.automation.storage(), object_id)        
     }
 
     public fun put<Executor: drop, Object: store + key>(self: &mut Executing<Executor>, object: Object) {
-        let (contains, idx) = self.intent.required.index_of(&object::id(&object).id_to_address());
+        let (contains, idx) = self.automation.required.index_of(&object::id(&object).id_to_address());
         assert!(contains, ENotAnObjectToReturn);
-        self.intent.required.swap_remove(idx);
-        transfer::public_transfer(object, self.intent.owner);
+        self.automation.required.swap_remove(idx);
+        transfer::public_transfer(object, self.automation.owner);
     }    
 
     public fun end<Executor: drop>(self: Executing<Executor>) {
-        let Executing { intent } = self;
-        let Automation { id, owner: _, name: _, execution: _, expiration: _, requested: _, deposited: _, required } = intent;
+        let Executing { automation } = self;
+        let Automation { id, owner: _, name: _, execution: _, expiration: _, requested: _, deposited: _, required } = automation;
 
         assert!(required.is_empty(), EObjectsNotReturned);
 
@@ -214,6 +217,14 @@ module automations::automation {
 
     public fun config_mut<Executor: drop, Config: store>(self: &mut Automation<Executor>, _: Executor): &mut Config {
         df::borrow_mut(self.storage(), ConfigKey {})
+    }
+
+    public fun initializing_inner<Executor: drop>(self: &Initializing<Executor>): &Automation<Executor> {
+        &self.automation
+    }
+
+    public fun executing_inner<Executor: drop>(self: &Executing<Executor>): &Automation<Executor> {
+        &self.automation
     }
 
     // === Admin Functions ===
