@@ -46,13 +46,12 @@ module automations::automation {
     // === Errors ===
 
     const EHasExpired: u64 = 1;
-    const ENotARequiredObject: u64 = 2;
+    const ENotARequestedObject: u64 = 2;
     const EObjectsNotReturned: u64 = 3;
     const EMissingRequestedObjects: u64 = 4;
     const EHasNotExpired: u64 = 5;
     const ENotExecutable: u64 = 6;
-    const ENotARequestedObject: u64 = 7;
-    const ENotAnObjectToReturn: u64 = 8;
+    const ENotAnObjectToReturn: u64 = 7;
 
     // === Constants ===
 
@@ -124,7 +123,7 @@ module automations::automation {
     public fun deposit<Executor: drop, Object: store + key>(self: &mut Initializing<Executor>, object: Object) {
         let object_id = object::id(&object).id_to_address();
         let (contains, idx) = self.automation.requested.index_of(&object_id);
-        assert!(contains && !self.automation.deposited.contains(&object_id), ENotARequiredObject);
+        assert!(contains && !self.automation.deposited.contains(&object_id), ENotARequestedObject);
         let addr = self.automation.requested.borrow(idx);
         // adds only requested items that are not in deposited yet
         self.automation.deposited.push_back(*addr);
@@ -174,12 +173,12 @@ module automations::automation {
     public fun give_back<Executor: drop, Object: store + key>(self: &mut Automation<Executor>, object_id: address, ctx: &mut TxContext) {
         assert!(ctx.epoch() > self.expiration, EHasNotExpired);
 
-        let object = dof::remove<address, Object>(self.storage(), object_id);
 
         let (contains, idx) = self.requested.index_of(&object_id);
         assert!(contains, ENotARequestedObject);
         self.requested.swap_remove(idx);
 
+        let object = dof::remove<address, Object>(self.storage(), object_id);
         transfer::public_transfer(object, self.owner);
     }
 
