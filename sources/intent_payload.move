@@ -25,6 +25,7 @@ module intent::intent_payload {
     // === Public-Mutative Functions ===
 
     public fun new<Executor: drop, Config: store>(
+        _: Executor,
         name: String,
         owner: address,
         deadline: u64,
