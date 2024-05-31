@@ -59,7 +59,6 @@ module intent::intent {
 
     public struct Intent<phantom Executor: drop> has key {
         id: UID,
-        storage: UID,
         owner: address,
         name: String,
         deadline: u64,        
@@ -92,13 +91,8 @@ module intent::intent {
             payload.required()
         );
 
-        let mut storage = object::new(ctx);
-
-        df::add(&mut storage, ConfigKey {}, payload.destroy());
-
-        let intent = Intent {
+        let mut intent = Intent {
             id: object::new(ctx),
-            storage,
             initiated: false,
             shared: false,
             owner,
@@ -109,12 +103,26 @@ module intent::intent {
             returned: vector[],
             required
         };
+        df::add(intent.storage(), ConfigKey {}, payload.destroy());
 
         let share_lock = ShareLock { intent: intent.id.uid_to_address() };
 
         (intent, share_lock)
     }
 
+    public fun deposit<Executor: drop, Object: store + key>(self: &mut Intent<Executor>, object: Object) {
+        assert!(!self.initiated, EIsAlreadyInitiated);
+        assert!(!self.shared, ECannotBeShared);
+
+        let object_id = object::id(&object).id_to_address();
+
+        assert!(self.requested.contains(&object_id), ENotARequiredObject);
+
+        self.deposited.push_back(object_id);
+        dof::add(self.storage(), object_id, object);
+    }
+
+    #[allow(lint(share_owned))]
     public fun share<Executor: drop>(mut self: Intent<Executor>, share_lock: ShareLock) {
         let ShareLock { intent } = share_lock;
 
@@ -127,18 +135,6 @@ module intent::intent {
         transfer::share_object(self);
     }
 
-    public fun deposit<Executor: drop, Object: store + key>(self: &mut Intent<Executor>, object: Object) {
-        assert!(!self.initiated, EIsAlreadyInitiated);
-        assert!(!self.shared, ECannotBeShared);
-
-        let object_id = object::id(&object).id_to_address();
-
-        assert!(self.requested.contains(&object_id), ENotARequiredObject);
-
-        self.deposited.push_back(object_id);
-        dof::add(&mut self.storage, object_id, object);
-    }
-
     public fun start<Executor: drop>(self: &mut Intent<Executor>, _: Executor, ctx: &mut TxContext): Lock {
         assert!(self.deadline > ctx.epoch(), EHasExpired);
         self.initiated = true;
@@ -147,7 +143,7 @@ module intent::intent {
 
     public fun take<Executor: drop, Object: store + key>(self: &mut Intent<Executor>, object_id: address): Object {
         assert!(self.initiated, ECallStartFirst);
-        dof::remove(&mut self.storage, object_id)
+        dof::remove(self.storage(), object_id)
     }
 
     public fun put<Executor: drop, Object: store + key>(self: &mut Intent<Executor>, object: Object) {
@@ -157,7 +153,7 @@ module intent::intent {
     }    
 
     public fun end<Executor: drop>(self: Intent<Executor>, lock: Lock) {
-        let Intent { id, storage, owner: _, initiated, name: _, deadline: _, requested: _, deposited: _, returned, required, shared: _ } = self;
+        let Intent { id, owner: _, initiated, name: _, deadline: _, requested: _, deposited: _, returned, required, shared: _ } = self;
 
         assert!(initiated, ECallStartFirst);
 
@@ -168,14 +164,13 @@ module intent::intent {
         assert_vectors_equality(required, returned, EMissingRequiredObjects);
 
         id.delete();
-        storage.delete();
     }
 
     public fun give_back<Executor: drop, Object: store + key>(self: &mut Intent<Executor>, object_id: address, ctx: &mut TxContext) {
         assert!(ctx.epoch() > self.deadline, EHasNotExpired);
         assert!(!self.initiated, EHasBeenInitiated);
 
-        let object = dof::remove<address, Object>(&mut self.storage, object_id);
+        let object = dof::remove<address, Object>(self.storage(), object_id);
 
         self.returned.push_back(object_id);
 
@@ -186,12 +181,11 @@ module intent::intent {
         assert!(ctx.epoch() > self.deadline, EHasNotExpired);
         assert!(!self.initiated, EHasBeenInitiated);
         
-        let Intent { id, storage, owner: _, initiated: _, name: _, deadline: _, requested: _, deposited: _, returned, required, shared: _ } = self;
+        let Intent { id, owner: _, initiated: _, name: _, deadline: _, requested: _, deposited: _, returned, required, shared: _ } = self;
 
         assert_vectors_equality(required, returned, EMissingRequiredObjects);
 
         id.delete();
-        storage.delete();
     }
 
     // === Public-View Functions ===
@@ -225,7 +219,7 @@ module intent::intent {
     }
 
     public fun config_mut<Executor: drop, Config: store>(self: &mut Intent<Executor>, _: Executor): &mut Config {
-        df::borrow_mut(&mut self.storage, ConfigKey {})
+        df::borrow_mut(self.storage(), ConfigKey {})
     }
 
     // === Admin Functions ===
@@ -233,6 +227,10 @@ module intent::intent {
     // === Public-Package Functions ===
 
     // === Private Functions ===
+
+    fun storage<Executor: drop>(self: &mut Intent<Executor>): &mut UID {
+        &mut self.id
+    }
 
     fun assert_vectors_equality(x: vector<address>, y: vector<address>, error: u64) {
         let mut i = 0;
