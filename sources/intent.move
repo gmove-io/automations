@@ -33,8 +33,8 @@ module intent::intent {
 
     use std::string::String;
 
-    use sui::transfer::Receiving;
     use sui::dynamic_field as df;
+    use sui::dynamic_object_field as dof;
 
     use intent::intent_payload::IntentPayload;
 
@@ -136,7 +136,7 @@ module intent::intent {
         assert!(self.requested.contains(&object_id), ENotARequiredObject);
 
         self.deposited.push_back(object_id);
-        transfer::public_transfer(object, self.storage.uid_to_address());
+        dof::add(&mut self.storage, object_id, object);
     }
 
     public fun start<Executor: drop>(self: &mut Intent<Executor>, _: Executor, ctx: &mut TxContext): Lock {
@@ -145,9 +145,9 @@ module intent::intent {
         Lock { intent: self.id.uid_to_address() }
     }
 
-    public fun take<Executor: drop, Object: store + key>(self: &mut Intent<Executor>, receiving: Receiving<Object>): Object {
+    public fun take<Executor: drop, Object: store + key>(self: &mut Intent<Executor>, object_id: address): Object {
         assert!(self.initiated, ECallStartFirst);
-        transfer::public_receive(&mut self.id, receiving)
+        dof::remove(&mut self.storage, object_id)
     }
 
     public fun put<Executor: drop, Object: store + key>(self: &mut Intent<Executor>, object: Object) {
@@ -171,13 +171,13 @@ module intent::intent {
         storage.delete();
     }
 
-    public fun give_back<Executor: drop, Object: store + key>(self: &mut Intent<Executor>, receiving: Receiving<Object>, ctx: &mut TxContext) {
+    public fun give_back<Executor: drop, Object: store + key>(self: &mut Intent<Executor>, object_id: address, ctx: &mut TxContext) {
         assert!(ctx.epoch() > self.deadline, EHasNotExpired);
         assert!(!self.initiated, EHasBeenInitiated);
 
-        let object = transfer::public_receive(&mut self.id, receiving);
+        let object = dof::remove<address, Object>(&mut self.storage, object_id);
 
-        self.returned.push_back(object::id(&object).id_to_address());
+        self.returned.push_back(object_id);
 
         transfer::public_transfer(object, self.owner);
     }
