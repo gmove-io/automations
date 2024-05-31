@@ -16,7 +16,7 @@ module intent::intent_payload {
         owner: address,
         deadline: u64,
         requested: vector<address>,
-        to_return: vector<address>,
+        required: vector<address>,
         config: Config
     }
 
@@ -29,7 +29,7 @@ module intent::intent_payload {
         owner: address,
         deadline: u64,
         requested: vector<address>,
-        to_return: vector<address>,
+        required: vector<address>,
         config: Config,
         ctx: &mut TxContext        
     ): IntentPayload<Executor, Config> {
@@ -39,7 +39,7 @@ module intent::intent_payload {
             owner,
             deadline,
             requested,
-            to_return,
+            required,
             config
         }
     }
@@ -50,7 +50,7 @@ module intent::intent_payload {
             owner: _,
             deadline: _,
             requested: _,
-            to_return: _, 
+            required: _, 
             config
         } = self;
 
@@ -75,8 +75,8 @@ module intent::intent_payload {
         self.requested
     }
 
-    public fun to_return<Executor: drop, Config: store>(self: &IntentPayload<Executor, Config>): vector<address> {
-        self.to_return
+    public fun required<Executor: drop, Config: store>(self: &IntentPayload<Executor, Config>): vector<address> {
+        self.required
     }
 
     public fun config<Executor: drop, Config: store>(self: &IntentPayload<Executor, Config>): &Config {
