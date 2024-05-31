@@ -1,10 +1,10 @@
 #[test_only]
-module intent::intent_payload_tests {
+module automations::intent_tests {
     use std::string::utf8;
     
     use sui::test_utils::{assert_eq, destroy};
 
-    use intent::intent_payload;
+    use automations::intent;
 
     const ALICE: address = @0x11ce;
     
@@ -17,16 +17,18 @@ module intent::intent_payload_tests {
     #[test]
     public fun end_to_end() {
         let name = utf8(b"Overflow is fun");
-        let deadline = 2;
+        let execution = 0;
+        let expiration = 2;
         let requested = vector[@0x2, @0x3];
         let required = vector[@0x02];
         let config_value = 7;
 
-        let payload = intent_payload::new(
+        let payload = intent::new(
             Witness {},
             name,
             ALICE,
-            deadline,
+            execution,
+            expiration,
             requested,
             required,
             Config { value: config_value },
@@ -35,7 +37,7 @@ module intent::intent_payload_tests {
 
         assert_eq(payload.name(), name);
         assert_eq(payload.owner(), ALICE);
-        assert_eq(payload.deadline(), deadline);
+        assert_eq(payload.expiration(), expiration);
         assert_eq(payload.requested(), requested);
         assert_eq(payload.required(), required);
 
@@ -46,10 +48,11 @@ module intent::intent_payload_tests {
     }
 
     #[test]
-    #[expected_failure(abort_code = intent_payload::EDeadlineIsInThePast)]
+    #[expected_failure(abort_code = intent::EDeadlineIsInThePast)]
     public fun test_new_error_deadline_is_in_the_past() {
         let name = utf8(b"Overflow is fun");
-        let deadline = 1;
+        let execution = 0;
+        let expiration = 1;
         let requested = vector[@0x2, @0x3];
         let required = vector[@0x02];
         let config_value = 7;
@@ -58,11 +61,12 @@ module intent::intent_payload_tests {
         ctx.increment_epoch_number();
         ctx.increment_epoch_number();
 
-        let payload = intent_payload::new(
+        let payload = intent::new(
             Witness {},
             name,
             ALICE,
-            deadline,
+            execution,
+            expiration,
             requested,
             required,
             Config { value: config_value },
