@@ -115,18 +115,6 @@ module intent::intent {
         (intent, share_lock)
     }
 
-    public fun share<Executor: drop>(mut self: Intent<Executor>, share_lock: ShareLock) {
-        let ShareLock { intent } = share_lock;
-
-        assert!(intent == self.id.uid_to_address(), EInvalidLock);
-
-        assert_vectors_equality(self.requested, self.deposited, EMissingRequestedObjects);
-
-        self.shared = true;
-
-        transfer::share_object(self);
-    }
-
     public fun deposit<Executor: drop, Object: store + key>(self: &mut Intent<Executor>, object: Object) {
         assert!(!self.initiated, EIsAlreadyInitiated);
         assert!(!self.shared, ECannotBeShared);
@@ -137,6 +125,19 @@ module intent::intent {
 
         self.deposited.push_back(object_id);
         dof::add(&mut self.storage, object_id, object);
+    }
+
+    #[allow(lint(share_owned))]
+    public fun share<Executor: drop>(mut self: Intent<Executor>, share_lock: ShareLock) {
+        let ShareLock { intent } = share_lock;
+
+        assert!(intent == self.id.uid_to_address(), EInvalidLock);
+
+        assert_vectors_equality(self.requested, self.deposited, EMissingRequestedObjects);
+
+        self.shared = true;
+
+        transfer::share_object(self);
     }
 
     public fun start<Executor: drop>(self: &mut Intent<Executor>, _: Executor, ctx: &mut TxContext): Lock {
