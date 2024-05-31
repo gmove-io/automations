@@ -57,7 +57,6 @@ module intent::intent {
 
     public struct Intent<phantom Executor: drop> has key {
         id: UID,
-        storage: UID,
         owner: address,
         name: String,
         deadline: u64,        
@@ -89,13 +88,8 @@ module intent::intent {
             payload.required()
         );
 
-        let mut storage = object::new(ctx);
-
-        df::add(&mut storage, ConfigKey {}, payload.destroy());
-
-        let intent = Intent {
+        let mut intent = Intent {
             id: object::new(ctx),
-            storage,
             initiated: false,
             owner,
             name,
@@ -105,6 +99,8 @@ module intent::intent {
             returned: vector[],
             required
         };
+
+        df::add(intent.storage(), ConfigKey {}, payload.destroy());
 
         Initializing { intent }
     }
@@ -117,7 +113,7 @@ module intent::intent {
         assert!(self.intent.requested.contains(&object_id), ENotARequiredObject);
 
         self.intent.deposited.push_back(object_id);
-        dof::add(&mut self.intent.storage, object_id, object);
+        dof::add(self.intent.storage(), object_id, object);
     }
 
     #[allow(lint(share_owned))]
@@ -137,7 +133,7 @@ module intent::intent {
 
     public fun take<Executor: drop, Object: store + key>(self: &mut Executing<Executor>, object_id: address): Object {
         assert!(self.intent.initiated, ECallStartFirst);
-        dof::remove(&mut self.intent.storage, object_id)
+        dof::remove(self.intent.storage(), object_id)
     }
 
     public fun put<Executor: drop, Object: store + key>(self: &mut Executing<Executor>, object: Object) {
@@ -148,21 +144,20 @@ module intent::intent {
 
     public fun end<Executor: drop>(self: Executing<Executor>) {
         let Executing { intent } = self;
-        let Intent { id, storage, owner: _, initiated, name: _, deadline: _, requested: _, deposited: _, returned, required } = intent;
+        let Intent { id, owner: _, initiated, name: _, deadline: _, requested: _, deposited: _, returned, required } = intent;
 
         assert!(initiated, ECallStartFirst);
 
         assert_vectors_equality(required, returned, EMissingRequiredObjects);
 
         id.delete();
-        storage.delete();
     }
 
     public fun give_back<Executor: drop, Object: store + key>(self: &mut Executing<Executor>, object_id: address, ctx: &mut TxContext) {
         assert!(ctx.epoch() > self.intent.deadline, EHasNotExpired);
         assert!(!self.intent.initiated, EHasBeenInitiated);
 
-        let object = dof::remove<address, Object>(&mut self.intent.storage, object_id);
+        let object = dof::remove<address, Object>(self.intent.storage(), object_id);
 
         self.intent.returned.push_back(object_id);
 
@@ -171,7 +166,7 @@ module intent::intent {
 
     public fun destroy<Executor: drop>(self: Executing<Executor>, ctx: &mut TxContext) {
         let Executing { intent } = self;
-        let Intent { id, storage, owner: _, initiated, name: _, deadline, requested: _, deposited: _, returned, required } = intent;
+        let Intent { id, owner: _, initiated, name: _, deadline, requested: _, deposited: _, returned, required } = intent;
         
         assert!(ctx.epoch() > deadline, EHasNotExpired);
         assert!(!initiated, EHasBeenInitiated);
@@ -179,7 +174,6 @@ module intent::intent {
         assert_vectors_equality(required, returned, EMissingRequiredObjects);
 
         id.delete();
-        storage.delete();
     }
 
     // === Public-View Functions ===
@@ -213,7 +207,7 @@ module intent::intent {
     }
 
     public fun config_mut<Executor: drop, Config: store>(self: &mut Intent<Executor>, _: Executor): &mut Config {
-        df::borrow_mut(&mut self.storage, ConfigKey {})
+        df::borrow_mut(self.storage(), ConfigKey {})
     }
 
     // === Admin Functions ===
@@ -221,6 +215,10 @@ module intent::intent {
     // === Public-Package Functions ===
 
     // === Private Functions ===
+
+    fun storage<Executor: drop>(self: &mut Intent<Executor>): &mut UID {
+        &mut self.id
+    }
 
     fun assert_vectors_equality(x: vector<address>, y: vector<address>, error: u64) {
         let mut i = 0;
