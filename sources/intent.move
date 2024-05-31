@@ -45,11 +45,9 @@ module intent::intent {
     const EIsAlreadyInitiated: u64 = 2;
     const ENotARequiredObject: u64 = 3;
     const EMissingRequiredObjects: u64 = 4;
-    const EInvalidLock: u64 = 5;
     const EMissingRequestedObjects: u64 = 6;
     const EHasNotExpired: u64 = 7;
     const EHasBeenInitiated: u64 = 8;
-    const ECannotBeShared: u64 = 9;
 
     // === Constants ===
 
@@ -64,26 +62,25 @@ module intent::intent {
         name: String,
         deadline: u64,        
         initiated: bool,
-        shared: bool,
         requested: vector<address>,
         deposited: vector<address>,
         returned: vector<address>,
         required: vector<address>,      
     }
 
-    public struct ShareLock {
-        intent: address
+    public struct Initializing<phantom Executor: drop> {
+        intent: Intent<Executor>
     }
 
-    public struct Lock {
-        intent: address
+    public struct Executing<phantom Executor: drop> {
+        intent: Intent<Executor>
     }
 
     // === Method Aliases ===
 
     // === Public-Mutative Functions ===
 
-    public fun new<Executor: drop, Config: store>(payload: IntentPayload<Executor, Config>, ctx: &mut TxContext): (Intent<Executor>, ShareLock) {
+    public fun new<Executor: drop, Config: store>(payload: IntentPayload<Executor, Config>, ctx: &mut TxContext): Initializing<Executor> {
         let (name, owner, deadline, requested, required) = (
             payload.name(),
             payload.owner(),
@@ -100,7 +97,6 @@ module intent::intent {
             id: object::new(ctx),
             storage,
             initiated: false,
-            shared: false,
             owner,
             name,
             deadline,
@@ -110,83 +106,75 @@ module intent::intent {
             required
         };
 
-        let share_lock = ShareLock { intent: intent.id.uid_to_address() };
-
-        (intent, share_lock)
+        Initializing { intent }
     }
 
-    public fun share<Executor: drop>(mut self: Intent<Executor>, share_lock: ShareLock) {
-        let ShareLock { intent } = share_lock;
-
-        assert!(intent == self.id.uid_to_address(), EInvalidLock);
-
-        assert_vectors_equality(self.requested, self.deposited, EMissingRequestedObjects);
-
-        self.shared = true;
-
-        transfer::share_object(self);
-    }
-
-    public fun deposit<Executor: drop, Object: store + key>(self: &mut Intent<Executor>, object: Object) {
-        assert!(!self.initiated, EIsAlreadyInitiated);
-        assert!(!self.shared, ECannotBeShared);
+    public fun deposit<Executor: drop, Object: store + key>(self: &mut Initializing<Executor>, object: Object) {
+        assert!(!self.intent.initiated, EIsAlreadyInitiated);
 
         let object_id = object::id(&object).id_to_address();
 
-        assert!(self.requested.contains(&object_id), ENotARequiredObject);
+        assert!(self.intent.requested.contains(&object_id), ENotARequiredObject);
 
-        self.deposited.push_back(object_id);
-        dof::add(&mut self.storage, object_id, object);
+        self.intent.deposited.push_back(object_id);
+        dof::add(&mut self.intent.storage, object_id, object);
     }
 
-    public fun start<Executor: drop>(self: &mut Intent<Executor>, _: Executor, ctx: &mut TxContext): Lock {
-        assert!(self.deadline > ctx.epoch(), EHasExpired);
-        self.initiated = true;
-        Lock { intent: self.id.uid_to_address() }
+    #[allow(lint(share_owned))]
+    public fun share<Executor: drop>(self: Initializing<Executor>) {
+        let Initializing { intent } = self;
+
+        assert_vectors_equality(intent.requested, intent.deposited, EMissingRequestedObjects);
+
+        transfer::share_object(intent);
     }
 
-    public fun take<Executor: drop, Object: store + key>(self: &mut Intent<Executor>, object_id: address): Object {
-        assert!(self.initiated, ECallStartFirst);
-        dof::remove(&mut self.storage, object_id)
+    public fun start<Executor: drop>(mut intent: Intent<Executor>, _: Executor, ctx: &mut TxContext): Executing<Executor> {
+        assert!(intent.deadline > ctx.epoch(), EHasExpired);
+        intent.initiated = true;
+        Executing { intent }
     }
 
-    public fun put<Executor: drop, Object: store + key>(self: &mut Intent<Executor>, object: Object) {
-        assert!(self.initiated, ECallStartFirst);
-        self.returned.push_back(object::id(&object).id_to_address());
-        transfer::public_transfer(object, self.owner);
+    public fun take<Executor: drop, Object: store + key>(self: &mut Executing<Executor>, object_id: address): Object {
+        assert!(self.intent.initiated, ECallStartFirst);
+        dof::remove(&mut self.intent.storage, object_id)
+    }
+
+    public fun put<Executor: drop, Object: store + key>(self: &mut Executing<Executor>, object: Object) {
+        assert!(self.intent.initiated, ECallStartFirst);
+        self.intent.returned.push_back(object::id(&object).id_to_address());
+        transfer::public_transfer(object, self.intent.owner);
     }    
 
-    public fun end<Executor: drop>(self: Intent<Executor>, lock: Lock) {
-        let Intent { id, storage, owner: _, initiated, name: _, deadline: _, requested: _, deposited: _, returned, required, shared: _ } = self;
+    public fun end<Executor: drop>(self: Executing<Executor>) {
+        let Executing { intent } = self;
+        let Intent { id, storage, owner: _, initiated, name: _, deadline: _, requested: _, deposited: _, returned, required } = intent;
 
         assert!(initiated, ECallStartFirst);
 
-        let Lock { intent } = lock;
-
-        assert!(id.uid_to_address() == intent, EInvalidLock);
-        
         assert_vectors_equality(required, returned, EMissingRequiredObjects);
 
         id.delete();
         storage.delete();
     }
 
-    public fun give_back<Executor: drop, Object: store + key>(self: &mut Intent<Executor>, object_id: address, ctx: &mut TxContext) {
-        assert!(ctx.epoch() > self.deadline, EHasNotExpired);
-        assert!(!self.initiated, EHasBeenInitiated);
+    public fun give_back<Executor: drop, Object: store + key>(self: &mut Executing<Executor>, object_id: address, ctx: &mut TxContext) {
+        assert!(ctx.epoch() > self.intent.deadline, EHasNotExpired);
+        assert!(!self.intent.initiated, EHasBeenInitiated);
 
-        let object = dof::remove<address, Object>(&mut self.storage, object_id);
+        let object = dof::remove<address, Object>(&mut self.intent.storage, object_id);
 
-        self.returned.push_back(object_id);
+        self.intent.returned.push_back(object_id);
 
-        transfer::public_transfer(object, self.owner);
+        transfer::public_transfer(object, self.intent.owner);
     }
 
-    public fun destroy<Executor: drop>(self: Intent<Executor>, ctx: &mut TxContext) {
-        assert!(ctx.epoch() > self.deadline, EHasNotExpired);
-        assert!(!self.initiated, EHasBeenInitiated);
+    public fun destroy<Executor: drop>(self: Executing<Executor>, ctx: &mut TxContext) {
+        let Executing { intent } = self;
+        let Intent { id, storage, owner: _, initiated, name: _, deadline, requested: _, deposited: _, returned, required } = intent;
         
-        let Intent { id, storage, owner: _, initiated: _, name: _, deadline: _, requested: _, deposited: _, returned, required, shared: _ } = self;
+        assert!(ctx.epoch() > deadline, EHasNotExpired);
+        assert!(!initiated, EHasBeenInitiated);
 
         assert_vectors_equality(required, returned, EMissingRequiredObjects);
 
