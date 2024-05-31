@@ -11,14 +11,14 @@ Flow
 --- To execute a proposal ---
 
 3 - Create the Intent with the IntentPayload
-4 - Deposit all required objects
+4 - Deposit all returned objects
 5 - Share Intent
 
 --- Happy Path someone executes ---
 
 6 - Call start
 7 - Take objects
-8 - Return objects (if required)
+8 - Return objects (if returned)
 9 - Call end
 
 --- Unhappy Path, the deadline has passed without it being executed ---
@@ -44,10 +44,12 @@ module intent::intent {
     const EHasExpired: u64 = 1;
     const EIsAlreadyInitiated: u64 = 2;
     const ENotARequiredObject: u64 = 3;
-    const EMissingRequiredObjects: u64 = 4;
+    const EObjectsNotReturned: u64 = 4;
     const EMissingRequestedObjects: u64 = 6;
     const EHasNotExpired: u64 = 7;
     const EHasBeenInitiated: u64 = 8;
+    const ENotARequestedObject: u64 = 9;
+    const ENotAnObjectToReturn: u64 = 10;
 
     // === Constants ===
 
@@ -63,8 +65,7 @@ module intent::intent {
         initiated: bool,
         requested: vector<address>,
         deposited: vector<address>,
-        returned: vector<address>,
-        required: vector<address>,      
+        required: vector<address>,    
     }
 
     public struct Initializing<phantom Executor: drop> {
@@ -95,8 +96,7 @@ module intent::intent {
             name,
             deadline,
             requested,
-            deposited: vector[],
-            returned: vector[],
+            deposited: requested,
             required
         };
 
@@ -109,10 +109,11 @@ module intent::intent {
         assert!(!self.intent.initiated, EIsAlreadyInitiated);
 
         let object_id = object::id(&object).id_to_address();
+        let (contains, idx) = self.intent.requested.index_of(&object_id);
+        assert!(contains && !self.intent.deposited.contains(&object_id), ENotARequiredObject);
+        let addr = self.intent.requested.borrow(idx);
+        self.intent.deposited.push_back(*addr);
 
-        assert!(self.intent.requested.contains(&object_id), ENotARequiredObject);
-
-        self.intent.deposited.push_back(object_id);
         dof::add(self.intent.storage(), object_id, object);
     }
 
@@ -132,23 +133,31 @@ module intent::intent {
     }
 
     public fun take<Executor: drop, Object: store + key>(self: &mut Executing<Executor>, object_id: address): Object {
-        assert!(self.intent.initiated, ECallStartFirst);
-        dof::remove(self.intent.storage(), object_id)
+        assert!(self.intent.initiated, ECallStartFirst);     
+
+        let (contains, idx) = self.intent.deposited.index_of(&object_id);
+        assert!(contains, ENotARequestedObject);
+
+        self.intent.deposited.swap_remove(idx);
+        dof::remove(self.intent.storage(), object_id)        
     }
 
     public fun put<Executor: drop, Object: store + key>(self: &mut Executing<Executor>, object: Object) {
         assert!(self.intent.initiated, ECallStartFirst);
-        self.intent.returned.push_back(object::id(&object).id_to_address());
+
+        let (contains, idx) = self.intent.required.index_of(&object::id(&object).id_to_address());
+        assert!(contains, ENotAnObjectToReturn);
+        self.intent.required.swap_remove(idx);
         transfer::public_transfer(object, self.intent.owner);
     }    
 
     public fun end<Executor: drop>(self: Executing<Executor>) {
         let Executing { intent } = self;
-        let Intent { id, owner: _, initiated, name: _, deadline: _, requested: _, deposited: _, returned, required } = intent;
+        let Intent { id, owner: _, initiated, name: _, deadline: _, requested: _, deposited: _, required } = intent;
 
         assert!(initiated, ECallStartFirst);
 
-        assert_vectors_equality(required, returned, EMissingRequiredObjects);
+        assert!(required.is_empty(), EObjectsNotReturned);
 
         id.delete();
     }
@@ -159,18 +168,20 @@ module intent::intent {
 
         let object = dof::remove<address, Object>(self.storage(), object_id);
 
-        self.returned.push_back(object_id);
+        let (contains, idx) = self.requested.index_of(&object_id);
+        assert!(contains, ENotARequestedObject);
+        self.requested.swap_remove(idx);
 
         transfer::public_transfer(object, self.owner);
     }
 
     public fun destroy<Executor: drop>(self: Intent<Executor>, ctx: &mut TxContext) {
-        let Intent { id, owner: _, initiated, name: _, deadline, requested: _, deposited: _, returned, required } = self;
+        assert!(ctx.epoch() > self.deadline, EHasNotExpired);
+        assert!(!self.initiated, EHasBeenInitiated);
         
-        assert!(ctx.epoch() > deadline, EHasNotExpired);
-        assert!(!initiated, EHasBeenInitiated);
+        let Intent { id, owner: _, initiated: _, name: _, deadline: _, requested, deposited: _, required: _ } = self;
 
-        assert_vectors_equality(required, returned, EMissingRequiredObjects);
+        assert!(requested.is_empty(), EMissingRequestedObjects);
 
         id.delete();
     }
@@ -197,12 +208,8 @@ module intent::intent {
         self.deposited
     }
 
-    public fun returned<Executor: drop>(self: &Intent<Executor>): vector<address> {
-        self.returned
-    }
-
     public fun required<Executor: drop>(self: &Intent<Executor>): vector<address> {
-        self.returned
+        self.required
     }
 
     public fun config_mut<Executor: drop, Config: store>(self: &mut Intent<Executor>, _: Executor): &mut Config {
