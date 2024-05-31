@@ -52,35 +52,35 @@ module intent::intent_payload {
             requested: _,
             required: _, 
             config
-         } = self;
+        } = self;
 
-         config
+        config
     }
 
     // === Public-View Functions ===
 
     public fun name<Executor: drop, Config: store>(self: &IntentPayload<Executor, Config>): String {
-     self.name
+        self.name
     }
 
     public fun owner<Executor: drop, Config: store>(self: &IntentPayload<Executor, Config>): address {
-     self.owner
+        self.owner
     }
 
     public fun deadline<Executor: drop, Config: store>(self: &IntentPayload<Executor, Config>): u64 {
-     self.deadline
+        self.deadline
     }
 
     public fun requested<Executor: drop, Config: store>(self: &IntentPayload<Executor, Config>): vector<address> {
-     self.requested
+        self.requested
     }
 
     public fun required<Executor: drop, Config: store>(self: &IntentPayload<Executor, Config>): vector<address> {
-     self.required
+        self.required
     }
 
     public fun config<Executor: drop, Config: store>(self: &IntentPayload<Executor, Config>): &Config {
-     &self.config
+        &self.config
     }
 
     // === Admin Functions ===
