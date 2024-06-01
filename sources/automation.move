@@ -202,6 +202,10 @@ module automations::automation {
         self.expiration
     }
 
+    public fun execution<Executor: drop>(self: &Automation<Executor>): u64 {
+        self.execution
+    }
+
     public fun requested<Executor: drop>(self: &Automation<Executor>): vector<address> {
         self.requested
     }
